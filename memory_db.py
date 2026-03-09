@@ -27,14 +27,14 @@ def get_or_create_collection(collection_name: str):
         return client.create_collection(name=safe_name)
 
 
-def store_chunks(collection_name: str, chunks: list[str], metadata: dict = None):
+def store_chunks(collection_name: str, chunks: list[str], metadata: list[dict] = None):
     """
     Stores a list of text chunks into the specified ChromaDB collection.
 
     Args:
         collection_name (str): The name of the collection to store the chunks in.
         chunks (list[str]): The text chunks to store.
-        metadata (dict, optional): Additional metadata to attach to each chunk.
+        metadata (list[dict], optional): A list of metadata dicts to attach to each chunk.
     """
     collection = get_or_create_collection(collection_name)
 
@@ -43,10 +43,9 @@ def store_chunks(collection_name: str, chunks: list[str], metadata: dict = None)
     # Add chunks to the collection in batches if necessary, but for a simple
     # implementation, we can add them directly. Chroma handles batching internally up to a point.
     if metadata:
-        metadatas = [metadata for _ in range(len(chunks))]
         collection.add(
             documents=chunks,
-            metadatas=metadatas,
+            metadatas=metadata,
             ids=ids
         )
     else:
@@ -56,7 +55,7 @@ def store_chunks(collection_name: str, chunks: list[str], metadata: dict = None)
         )
 
 
-def query_chunks(collection_name: str, query: str, n_results: int = 3) -> list[str]:
+def query_chunks(collection_name: str, query: str, n_results: int = 3, character_filter: str = None) -> list[str]:
     """
     Queries the ChromaDB collection for chunks relevant to the given query.
 
@@ -64,6 +63,7 @@ def query_chunks(collection_name: str, query: str, n_results: int = 3) -> list[s
         collection_name (str): The name of the collection to query.
         query (str): The search query (e.g., the user's chat message).
         n_results (int): The number of top chunks to return.
+        character_filter (str): The character name to filter the search to.
 
     Returns:
         list[str]: A list of the most relevant text chunks.
@@ -74,10 +74,15 @@ def query_chunks(collection_name: str, query: str, n_results: int = 3) -> list[s
     if collection.count() == 0:
         return []
 
-    results = collection.query(
-        query_texts=[query],
-        n_results=min(n_results, collection.count())
-    )
+    query_kwargs = {
+        "query_texts": [query],
+        "n_results": min(n_results, collection.count())
+    }
+
+    if character_filter:
+        query_kwargs["where"] = {"characters": {"$contains": character_filter}}
+
+    results = collection.query(**query_kwargs)
 
     # The documents are returned in a nested list structure: [['chunk1', 'chunk2']]
     if results and results.get('documents') and len(results['documents']) > 0:

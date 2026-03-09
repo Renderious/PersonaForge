@@ -3,7 +3,7 @@ import os
 
 from parser import chunk_text
 from memory_db import store_chunks, query_chunks, get_or_create_collection
-from llm_router import extract_characters, generate_character_system_prompt, chat_stream
+from llm_router import extract_characters, generate_character_system_prompt, chat_stream, attribute_characters_to_chunk
 
 # Page config
 st.set_page_config(page_title="PersonaForge", layout="wide")
@@ -47,22 +47,42 @@ with st.sidebar:
                 st.write("Chunking text...")
                 chunks = chunk_text(text)
 
-                # 2. Store in ChromaDB
-                st.write("Storing chunks in Vector DB...")
-                # Ensure a clean collection if we're re-uploading the same named file
-                collection_name = current_book_name
-                try:
-                    store_chunks(collection_name, chunks)
-                except Exception as e:
-                    st.error(f"Error storing chunks: {e}")
-
-                # 3. Extract Characters
+                # 2. Extract Characters
                 st.write("Extracting characters with local LLM...")
                 characters = extract_characters(chunks)
                 st.session_state.characters = characters
 
                 if not characters:
                     st.warning("No characters extracted.")
+                else:
+                    # 3. Attribute Characters to Chunks for Metadata
+                    st.write("Analyzing character presence in scenes (this may take a while)...")
+                    metadata_list = []
+
+                    # Create a progress bar
+                    progress_text = "Analyzing chunks..."
+                    my_bar = st.progress(0, text=progress_text)
+
+                    for i, chunk in enumerate(chunks):
+                        present_chars = attribute_characters_to_chunk(chunk, characters)
+                        # Store as comma separated string for ChromaDB metadata
+                        char_str = ",".join(present_chars) if present_chars else ""
+                        metadata_list.append({"characters": char_str})
+
+                        # Update progress
+                        progress = (i + 1) / len(chunks)
+                        my_bar.progress(progress, text=f"{progress_text} ({i+1}/{len(chunks)})")
+
+                    my_bar.empty()
+
+                    # 4. Store in ChromaDB
+                    st.write("Storing chunks in Vector DB...")
+                    # Ensure a clean collection if we're re-uploading the same named file
+                    collection_name = current_book_name
+                    try:
+                        store_chunks(collection_name, chunks, metadata_list)
+                    except Exception as e:
+                        st.error(f"Error storing chunks: {e}")
 
                 st.success("Ingestion complete!")
 
@@ -125,7 +145,7 @@ with chat_col:
             # Retrieve relevant memories/chunks from ChromaDB
             with st.spinner("Recalling memories..."):
                 collection_name = st.session_state.book_name
-                context_chunks = query_chunks(collection_name, prompt, n_results=3)
+                context_chunks = query_chunks(collection_name, prompt, n_results=3, character_filter=character)
                 st.session_state.latest_chunks = context_chunks
 
             # Stream response from Ollama

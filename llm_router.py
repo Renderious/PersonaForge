@@ -62,6 +62,59 @@ def extract_characters(text_chunks: list[str], model: str = DEFAULT_MODEL) -> li
         return []
 
 
+def attribute_characters_to_chunk(chunk: str, characters: list[str], model: str = DEFAULT_MODEL) -> list[str]:
+    """
+    Asks the LLM to identify which of the provided characters are present in the given text chunk.
+
+    Args:
+        chunk (str): The text chunk to analyze.
+        characters (list[str]): The list of known characters to look for.
+        model (str): The Ollama model to use.
+
+    Returns:
+        list[str]: A list of character names found in the chunk.
+    """
+    characters_str = ", ".join(characters)
+    prompt = (
+        f"Analyze the following text chunk and determine which of these characters are present or directly involved in the scene: [{characters_str}]. "
+        "Consider pronouns and context if a character's presence is implied. "
+        "Return a JSON object with a single key 'characters' containing a list of strings of the characters present. "
+        "For example: {\"characters\": [\"Alice\", \"Bob\"]}\n\n"
+        f"Text:\n{chunk}"
+    )
+
+    try:
+        response = ollama.chat(model=model, format='json', messages=[
+            {
+                'role': 'user',
+                'content': prompt
+            }
+        ])
+
+        content = response['message']['content']
+
+        # Try to parse the JSON response. The LLM might include markdown formatting.
+        if '```json' in content:
+            content = content.split('```json')[1].split('```')[0].strip()
+        elif '```' in content:
+            content = content.split('```')[1].split('```')[0].strip()
+
+        # Parse the JSON response
+        data = json.loads(content)
+
+        # Extract the list from the 'characters' key
+        if 'characters' in data and isinstance(data['characters'], list):
+            # Ensure we only return characters from our known list to prevent hallucinations
+            found_chars = [char for char in data['characters'] if char in characters]
+            return found_chars
+        else:
+            return []
+
+    except Exception as e:
+        print(f"Error during character attribution: {e}")
+        return []
+
+
 def generate_character_system_prompt(character_name: str, text_chunks: list[str], model: str = DEFAULT_MODEL) -> str:
     """
     Generates a concise Core System Prompt focusing on the character's tone, personality, and speaking style.
