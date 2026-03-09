@@ -25,13 +25,14 @@ def extract_characters(text_chunks: list[str], model: str = DEFAULT_MODEL) -> li
 
     prompt = (
         "Analyze the following text from a book and extract the names of the primary characters. "
-        "Return ONLY a JSON list of strings containing the character names, and nothing else. "
-        "For example: [\"Alice\", \"Bob\", \"Charlie\"]\n\n"
+        "Return a JSON object with a single key 'characters' containing a list of strings. "
+        "For example: {\"characters\": [\"Alice\", \"Bob\", \"Charlie\"]}\n\n"
         f"Text:\n{combined_text}"
     )
 
     try:
-        response = ollama.chat(model=model, messages=[
+        # Using format='json' forces Ollama to output valid JSON
+        response = ollama.chat(model=model, format='json', messages=[
             {
                 'role': 'user',
                 'content': prompt
@@ -46,11 +47,14 @@ def extract_characters(text_chunks: list[str], model: str = DEFAULT_MODEL) -> li
         elif '```' in content:
             content = content.split('```')[1].split('```')[0].strip()
 
-        characters = json.loads(content)
-        if isinstance(characters, list):
-            return characters
+        # Parse the JSON response
+        data = json.loads(content)
+
+        # Extract the list from the 'characters' key
+        if 'characters' in data and isinstance(data['characters'], list):
+            return data['characters']
         else:
-            print("Warning: LLM did not return a list.")
+            print("Warning: LLM did not return the expected JSON structure.")
             return []
 
     except Exception as e:

@@ -52,6 +52,8 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
         if end == text_length:
             break
 
-        start = end - overlap
+        # Ensure we always move forward
+        step = max(end - start - overlap, 1)
+        start += step
 
     return chunks
