@@ -20,16 +20,18 @@ if "selected_character" not in st.session_state:
     st.session_state.selected_character = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "latest_chunks" not in st.session_state:
+    st.session_state.latest_chunks = []
 
 # Sidebar for book upload and character selection
 with st.sidebar:
-    st.header("1. Ingestion")
+    st.header("Source Text")
 
-    uploaded_file = st.file_uploader("Upload a book (.txt)", type=["txt"])
+    uploaded_file = st.file_uploader("Upload Book (.txt, .epub)", type=["txt", "epub"])
 
     if uploaded_file is not None:
         # We only process if it's a new book
-        current_book_name = uploaded_file.name.replace(".txt", "")
+        current_book_name = uploaded_file.name.replace(".txt", "").replace(".epub", "")
 
         if st.session_state.book_name != current_book_name:
             st.session_state.book_name = current_book_name
@@ -64,16 +66,16 @@ with st.sidebar:
 
                 st.success("Ingestion complete!")
 
-    st.header("2. Character Selection")
+    st.header("Extracted Characters (Cast)")
 
     # If we have characters, display them
     if st.session_state.characters:
-        character_choice = st.selectbox(
+        character_choice = st.radio(
             "Select a character to chat with:",
-            options=["-- Select --"] + st.session_state.characters
+            options=st.session_state.characters
         )
 
-        if character_choice != "-- Select --":
+        if character_choice:
             # If a new character is selected, clear chat and generate prompt if needed
             if st.session_state.selected_character != character_choice:
                 st.session_state.selected_character = character_choice
@@ -95,57 +97,70 @@ with st.sidebar:
     else:
         st.info("Upload a book to extract characters.")
 
-# Main area for chatting
-st.header("3. Chat Interface")
+# Main area split into chat and RAG
+chat_col, rag_col = st.columns([2, 1])
 
-if st.session_state.selected_character:
-    character = st.session_state.selected_character
-    sys_prompt = st.session_state.character_prompts.get(character, "")
+with chat_col:
+    if st.session_state.selected_character:
+        character = st.session_state.selected_character
+        sys_prompt = st.session_state.character_prompts.get(character, "")
 
-    with st.expander("View System Prompt (Developer Info)"):
-        st.text_area("Core System Prompt", sys_prompt, height=150, disabled=True)
+        with st.expander("View System Prompt (Developer Info)"):
+            st.text_area("Core System Prompt", sys_prompt, height=150, disabled=True)
 
-    # Display chat messages
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+        # Display chat messages
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-    # Accept user input
-    if prompt := st.chat_input(f"Message {character}..."):
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        # Accept user input
+        if prompt := st.chat_input(f"Message {character}..."):
+            # Add user message to chat history
+            st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # Display user message in chat message container
-        with st.chat_message("user"):
-            st.markdown(prompt)
+            # Display user message in chat message container
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-        # Retrieve relevant memories/chunks from ChromaDB
-        with st.spinner("Recalling memories..."):
-            collection_name = st.session_state.book_name
-            context_chunks = query_chunks(collection_name, prompt, n_results=3)
+            # Retrieve relevant memories/chunks from ChromaDB
+            with st.spinner("Recalling memories..."):
+                collection_name = st.session_state.book_name
+                context_chunks = query_chunks(collection_name, prompt, n_results=3)
+                st.session_state.latest_chunks = context_chunks
 
-        # Stream response from Ollama
-        with st.chat_message("assistant"):
-            message_placeholder = st.empty()
-            full_response = ""
+            # Stream response from Ollama
+            with st.chat_message("assistant"):
+                message_placeholder = st.empty()
+                full_response = ""
 
-            # Use llm_router's stream function
-            try:
-                for response_chunk in chat_stream(
-                    character_name=character,
-                    system_prompt=sys_prompt,
-                    context_chunks=context_chunks,
-                    user_message=prompt
-                ):
-                    full_response += response_chunk
-                    message_placeholder.markdown(full_response + "▌")
+                # Use llm_router's stream function
+                try:
+                    for response_chunk in chat_stream(
+                        character_name=character,
+                        system_prompt=sys_prompt,
+                        context_chunks=context_chunks,
+                        user_message=prompt
+                    ):
+                        full_response += response_chunk
+                        message_placeholder.markdown(full_response + "▌")
 
-                # Final update without cursor
-                message_placeholder.markdown(full_response)
-            except Exception as e:
-                st.error(f"Error during chat: {e}")
+                    # Final update without cursor
+                    message_placeholder.markdown(full_response)
+                except Exception as e:
+                    st.error(f"Error during chat: {e}")
 
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
-else:
-    st.info("Please upload a book and select a character from the sidebar to start chatting.")
+            # Add assistant response to chat history
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
+    else:
+        st.info("Please upload a book and select a character from the sidebar to start chatting.")
+
+with rag_col:
+    st.header("RAG Viewer")
+    st.markdown("**(Memories accessed)**")
+
+    if st.session_state.latest_chunks:
+        for i, chunk in enumerate(st.session_state.latest_chunks):
+            with st.expander(f"Memory {i+1}", expanded=True):
+                st.markdown(chunk)
+    else:
+        st.info("No memories accessed yet.")
