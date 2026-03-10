@@ -1,9 +1,11 @@
 import streamlit as st
 import os
 
+import json
 from parser import chunk_text
 from memory_db import store_chunks, query_chunks, get_or_create_collection
-from llm_router import extract_characters, generate_character_system_prompt, chat_stream
+from llm_router import extract_characters, generate_character_system_prompt, chat_stream, extract_character_details, extract_world_entities
+from character_exporter import generate_character_card_v2, generate_lorebook
 
 # Page config
 st.set_page_config(page_title="PersonaForge", layout="wide")
@@ -22,6 +24,10 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "latest_chunks" not in st.session_state:
     st.session_state.latest_chunks = []
+if "lorebook_data" not in st.session_state:
+    st.session_state.lorebook_data = None
+if "character_cards" not in st.session_state:
+    st.session_state.character_cards = {}
 
 # Sidebar for book upload and character selection
 with st.sidebar:
@@ -64,7 +70,23 @@ with st.sidebar:
                 if not characters:
                     st.warning("No characters extracted.")
 
+                # 4. Extract World Entities and Generate Lorebook
+                st.write("Extracting world entities for Lorebook...")
+                world_entities = extract_world_entities(chunks)
+                if world_entities:
+                    st.session_state.lorebook_data = generate_lorebook(world_entities)
+
                 st.success("Ingestion complete!")
+
+    # Display Lorebook Download
+    if st.session_state.lorebook_data:
+        lorebook_json = json.dumps(st.session_state.lorebook_data, indent=4)
+        st.download_button(
+            label="Download Lorebook JSON",
+            data=lorebook_json,
+            file_name=f"{st.session_state.book_name}_lorebook.json",
+            mime="application/json"
+        )
 
     st.header("Extracted Characters (Cast)")
 
@@ -83,17 +105,45 @@ with st.sidebar:
 
                 # Generate system prompt if we haven't already
                 if character_choice not in st.session_state.character_prompts:
-                    with st.spinner(f"Generating persona for {character_choice}..."):
+                    with st.spinner(f"Generating advanced persona and Character Card V2 for {character_choice}..."):
                         # Get some relevant chunks about the character for context
-                        relevant_chunks = query_chunks(st.session_state.book_name, character_choice, n_results=5)
+                        relevant_chunks = query_chunks(st.session_state.book_name, character_choice, n_results=10)
 
-                        sys_prompt = generate_character_system_prompt(
+                        # Core prompt
+                        core_sys_prompt = generate_character_system_prompt(
                             character_name=character_choice,
                             text_chunks=relevant_chunks
                         )
+
+                        # Extract advanced details for V2 card
+                        extracted_details = extract_character_details(
+                            character_name=character_choice,
+                            text_chunks=relevant_chunks
+                        )
+
+                        # Generate V2 Card
+                        v2_card = generate_character_card_v2(
+                            character_name=character_choice,
+                            core_system_prompt=core_sys_prompt,
+                            extracted_details=extracted_details
+                        )
+
+                        # Save the updated system prompt (with guardrails)
+                        sys_prompt = v2_card["data"]["system_prompt"]
                         st.session_state.character_prompts[character_choice] = sys_prompt
+                        st.session_state.character_cards[character_choice] = v2_card
 
                 st.success(f"Ready to chat with {character_choice}!")
+
+                if character_choice in st.session_state.character_cards:
+                    card_json = json.dumps(st.session_state.character_cards[character_choice], indent=4)
+                    safe_name = "".join([c if c.isalnum() else "_" for c in character_choice]).strip("_").lower()
+                    st.download_button(
+                        label=f"Download {character_choice} Character Card V2",
+                        data=card_json,
+                        file_name=f"{safe_name}.json",
+                        mime="application/json"
+                    )
     else:
         st.info("Upload a book to extract characters.")
 

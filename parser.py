@@ -1,9 +1,11 @@
+import re
+
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
     """
-    Splits the input text into chunks of roughly `chunk_size` characters,
+    Splits the input text into semantic chunks of roughly `chunk_size` characters,
     with an overlap of `overlap` characters between consecutive chunks.
 
-    This helps preserve context across chunk boundaries.
+    It tries to split by paragraph first, then by sentence, to maintain semantic meaning.
 
     Args:
         text (str): The plain text to chunk.
@@ -16,44 +18,45 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
     if not text:
         return []
 
-    # Ensure overlap is strictly less than chunk_size to avoid infinite loops
     if overlap >= chunk_size:
         raise ValueError("Overlap must be less than chunk_size.")
 
     chunks = []
-    start = 0
-    text_length = len(text)
 
-    while start < text_length:
-        end = min(start + chunk_size, text_length)
+    # Pre-process: split by paragraphs
+    paragraphs = re.split(r'\n\s*\n', text)
 
-        # If we are not at the very end of the text, try to find a nice breaking point
-        # (like a newline or space) so we don't cut words in half.
-        if end < text_length:
-            # Try to break at a double newline (paragraph)
-            break_point = text.rfind('\n\n', start, end)
+    current_chunk = ""
 
-            # Fallback to single newline if no double newline found in the latter half of the chunk
-            if break_point == -1 or break_point < start + (chunk_size // 2):
-                break_point = text.rfind('\n', start, end)
+    for p in paragraphs:
+        p = p.strip()
+        if not p:
+            continue
 
-            # Fallback to space if no newline found
-            if break_point == -1 or break_point < start + (chunk_size // 2):
-                break_point = text.rfind(' ', start, end)
+        # If adding the paragraph exceeds chunk_size and we already have content
+        if len(current_chunk) + len(p) + 2 > chunk_size and current_chunk:
+            chunks.append(current_chunk.strip())
 
-            # If we found a suitable breaking point, use it. Otherwise, hard break at chunk_size.
-            if break_point != -1 and break_point > start:
-                end = break_point + 1 # Include the breaking character
+            # Start new chunk with overlap from the end of the previous chunk
+            # We approximate overlap by taking the last 'overlap' characters from the previous chunk,
+            # ensuring we break at a word boundary.
+            if len(current_chunk) > overlap:
+                overlap_text = current_chunk[-overlap:]
+                # Try to find a space to break on
+                space_idx = overlap_text.find(' ')
+                if space_idx != -1:
+                    overlap_text = overlap_text[space_idx+1:]
+                current_chunk = overlap_text + "\n\n" + p
+            else:
+                current_chunk = p
+        else:
+            if current_chunk:
+                current_chunk += "\n\n" + p
+            else:
+                current_chunk = p
 
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-
-        if end == text_length:
-            break
-
-        # Ensure we always move forward
-        step = max(end - start - overlap, 1)
-        start += step
+    # Add the last chunk
+    if current_chunk:
+        chunks.append(current_chunk.strip())
 
     return chunks
