@@ -183,7 +183,7 @@ def extract_character_details(character_name: str, text_chunks: list[str], model
         return {}
 
 
-def extract_world_entities(text_chunks: list[str], model: str = DEFAULT_MODEL) -> list[dict]:
+def extract_world_entities(text_chunks: list[str], model: str = DEFAULT_MODEL, progress_callback=None) -> list[dict]:
     """
     Passes text chunks to the LLM to extract world-building entities for a Lorebook.
     Processes chunks in batches to avoid context limits.
@@ -193,7 +193,12 @@ def extract_world_entities(text_chunks: list[str], model: str = DEFAULT_MODEL) -
 
     # Process in batches of 5 chunks
     batch_size = 5
+    total_batches = (len(text_chunks) + batch_size - 1) // batch_size
     for i in range(0, len(text_chunks), batch_size):
+        current_batch = i // batch_size
+        if progress_callback:
+            progress_callback(current_batch, total_batches)
+
         batch = text_chunks[i:i + batch_size]
         combined_text = "\n\n".join(batch)
 

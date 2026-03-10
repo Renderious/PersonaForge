@@ -72,7 +72,20 @@ with st.sidebar:
 
                 # 4. Extract World Entities and Generate Lorebook
                 st.write("Extracting world entities for Lorebook...")
-                world_entities = extract_world_entities(chunks)
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                def update_progress(current_batch, total_batches):
+                    # Progress is updated at the start of each batch
+                    progress = float(current_batch) / max(total_batches, 1)
+                    progress_bar.progress(progress)
+                    status_text.text(f"Processing batch {current_batch + 1} of {total_batches}...")
+
+                world_entities = extract_world_entities(chunks, progress_callback=update_progress)
+
+                # Finish progress
+                progress_bar.progress(1.0)
+                status_text.text(f"Completed extraction of world entities!")
                 if world_entities:
                     st.session_state.lorebook_data = generate_lorebook(world_entities)
 
